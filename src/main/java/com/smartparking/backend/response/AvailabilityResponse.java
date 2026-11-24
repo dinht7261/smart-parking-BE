@@ -1,4 +1,4 @@
-package com.smartparking.backend.spot;
+package com.smartparking.backend.response;
 
 public record AvailabilityResponse(
     long total,

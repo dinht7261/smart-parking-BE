@@ -1,5 +1,8 @@
-package com.smartparking.backend.spot;
+package com.smartparking.backend.controller;
 
+import com.smartparking.backend.response.AvailabilityResponse;
+import com.smartparking.backend.response.ParkingSpotResponse;
+import com.smartparking.backend.service.ParkingSpotService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;

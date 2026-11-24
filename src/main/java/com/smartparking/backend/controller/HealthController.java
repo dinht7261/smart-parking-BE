@@ -1,4 +1,5 @@
-package com.smartparking.backend.health;
+
+package com.smartparking.backend.controller;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -19,10 +20,22 @@ public class HealthController {
 
     @GetMapping
     public Map<String, String> health() {
-        Integer value = jdbc.queryForObject("SELECT 1 FROM DUAL", Integer.class);
+
+        // Kiểm tra kết nối PostgreSQL
+        Integer value = jdbc.queryForObject(
+                "SELECT 1",
+                Integer.class
+        );
+
         if (value == null || value != 1) {
-            throw new IllegalStateException("Oracle health check failed");
+            throw new IllegalStateException(
+                    "PostgreSQL health check failed"
+            );
         }
-        return Map.of("status", "UP", "database", "ORACLE");
+
+        return Map.of(
+                "status", "UP",
+                "database", "POSTGRESQL"
+        );
     }
 }

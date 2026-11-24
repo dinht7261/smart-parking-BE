@@ -1,4 +1,4 @@
-package com.smartparking.backend.spot;
+package com.smartparking.backend.enums;
 
 public enum ParkingSpotStatus {
     AVAILABLE,

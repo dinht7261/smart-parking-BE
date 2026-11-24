@@ -1,4 +1,7 @@
-package com.smartparking.backend.spot;
+package com.smartparking.backend.response;
+
+import com.smartparking.backend.entity.ParkingSpot;
+import com.smartparking.backend.enums.ParkingSpotStatus;
 
 public record ParkingSpotResponse(
     Long id,

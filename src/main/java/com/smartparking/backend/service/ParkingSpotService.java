@@ -1,5 +1,10 @@
-package com.smartparking.backend.spot;
+package com.smartparking.backend.service;
 
+import com.smartparking.backend.response.AvailabilityResponse;
+import com.smartparking.backend.entity.ParkingSpot;
+import com.smartparking.backend.repository.ParkingSpotRepository;
+import com.smartparking.backend.response.ParkingSpotResponse;
+import com.smartparking.backend.enums.ParkingSpotStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
