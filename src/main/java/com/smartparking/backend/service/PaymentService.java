@@ -194,15 +194,25 @@ public class PaymentService {
         Payment payment = new Payment(
                 generatePaymentCode(),
                 session,
+
+                // Phí gửi xe
                 billableHours,
                 parkingFee,
-                reservationHoldHours,
-                reservationHoldFee,
+
+                // Phạt qua đêm
                 violationNights,
                 overnightPenalty,
+
+                // Phụ phí giữ chỗ
+                reservationHoldHours,
+                reservationHoldFee,
+
+                // Tổng tiền
                 totalAmount,
+
                 PaymentMethod.SIMULATED
         );
+
         return paymentRepository.save(payment);
     }
 
