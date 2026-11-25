@@ -52,9 +52,8 @@ public class ParkingSpot {
     }
 
 
-    // Giải phóng vị trí sau khi thanh toán
-// Giải phóng vị trí sau khi thanh toán
-// Nếu còn lịch đặt tương lai thì giữ RESERVED
+    // Giải phóng vị trí sau khi thanh toán.
+    // Giữ RESERVED nếu vị trí vẫn còn lịch đặt chỗ trong tương lai.
     public void release(boolean hasFutureReservations) {
 
         if (status != ParkingSpotStatus.OCCUPIED) {
@@ -69,7 +68,7 @@ public class ParkingSpot {
                 : ParkingSpotStatus.AVAILABLE;
     }
 
-    // Giữ tương thích với các luồng cũ
+    // Giữ tương thích với các luồng cũ không cần kiểm tra lịch đặt chỗ.
     public void release() {
         release(false);
     }
