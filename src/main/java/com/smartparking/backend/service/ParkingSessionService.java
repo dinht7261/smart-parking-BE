@@ -47,10 +47,20 @@ public class ParkingSessionService {
     private final ReservationRepository reservationRepository;
     private final SimulationClockService clockService;
 
-    private static final List<ParkingSessionStatus> OCCUPYING_STATUSES =
+    // Các phiên chưa hoàn tất.
+// AWAITING_PAYMENT vẫn chặn user/biển số tạo phiên mới.
+    private static final List<ParkingSessionStatus>
+            UNFINISHED_SESSION_STATUSES =
             List.of(
                     ParkingSessionStatus.ACTIVE,
                     ParkingSessionStatus.AWAITING_PAYMENT
+            );
+
+    // Chỉ phiên ACTIVE mới thực sự chiếm vị trí đỗ.
+    private static final List<ParkingSessionStatus>
+            PARKING_SPOT_OCCUPYING_STATUSES =
+            List.of(
+                    ParkingSessionStatus.ACTIVE
             );
 
     private static final List<String> BLOCKING_RESERVATION_STATUSES =
@@ -163,7 +173,7 @@ public class ParkingSessionService {
 
         if (sessionRepository.existsByUser_IdAndStatusIn(
                 user.getId(),
-                OCCUPYING_STATUSES
+                UNFINISHED_SESSION_STATUSES
         )) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
@@ -175,7 +185,7 @@ public class ParkingSessionService {
 
         if (sessionRepository.existsByLicensePlateAndStatusIn(
                 licensePlate,
-                OCCUPYING_STATUSES
+                UNFINISHED_SESSION_STATUSES
         )) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
@@ -311,7 +321,7 @@ public class ParkingSessionService {
             boolean occupied =
                     sessionRepository.existsBySpot_IdAndStatusIn(
                             spot.getId(),
-                            OCCUPYING_STATUSES
+                            PARKING_SPOT_OCCUPYING_STATUSES
                     );
 
             if (occupied) {
@@ -480,7 +490,7 @@ public class ParkingSessionService {
 
         if (sessionRepository.existsBySpot_IdAndStatusIn(
                 spot.getId(),
-                OCCUPYING_STATUSES
+                PARKING_SPOT_OCCUPYING_STATUSES
         )) {
 
             throw new ResponseStatusException(
@@ -493,7 +503,7 @@ public class ParkingSessionService {
 
         if (sessionRepository.existsByLicensePlateAndStatusIn(
                 licensePlate,
-                OCCUPYING_STATUSES
+                UNFINISHED_SESSION_STATUSES
         )) {
 
             throw new ResponseStatusException(
@@ -546,63 +556,86 @@ public class ParkingSessionService {
 
 
     @Transactional
-    public ParkingSessionResponse checkOut(
-            String sessionCode
-    ) {
+    public ParkingSessionResponse checkOut(String sessionCode) {
 
         if (sessionCode == null || sessionCode.isBlank()) {
-
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
                     "Mã phiên gửi xe không được để trống"
             );
         }
 
-        // 1. Tìm Session và khóa bản ghi
+        // 1. Tìm và khóa phiên gửi xe
         ParkingSession session =
                 sessionRepository.findBySessionCodeForUpdate(
                         sessionCode.trim()
-                ).orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND,
-                        "Không tìm thấy phiên gửi xe"
-                ));
+                ).orElseThrow(() ->
+                        new ResponseStatusException(
+                                HttpStatus.NOT_FOUND,
+                                "Không tìm thấy phiên gửi xe"
+                        )
+                );
 
         if (session.getStatus() != ParkingSessionStatus.ACTIVE) {
-
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
                     "Phiên gửi xe không ở trạng thái ACTIVE"
             );
         }
 
-        // 2. Lấy thời gian từ OUT Clock
-        LocalDateTime checkOutTime = getSimulatedTime(
-                ClockType.OUT
-        );
+        // 2. Lấy thời gian OUT Clock
+        LocalDateTime checkOutTime =
+                getSimulatedTime(ClockType.OUT);
 
-        // 3. Kiểm tra thời gian
         if (!checkOutTime.isAfter(session.getCheckInTime())) {
-
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
                     "Thời gian OUT Clock phải sau thời gian IN Clock"
             );
         }
 
-        // 4. Chuyển phiên gửi xe sang AWAITING_PAYMENT
+        // 3. Chuyển phiên sang chờ thanh toán
         session.checkOut(checkOutTime);
 
-        ParkingSession saved = sessionRepository.save(session);
+        // 4. Hoàn tất Reservation hiện tại nếu có
+        Reservation reservation = session.getReservation();
 
-        // =====================================
-        // 5. TỰ ĐỘNG TẠO HÓA ĐƠN
-        // =====================================
+        if (reservation != null) {
+            reservation.markCompleted();
+            reservationRepository.save(reservation);
+        }
 
+        // 5. Khóa vị trí đỗ
+        ParkingSpot spot =
+                spotRepository.findByIdForUpdate(
+                        session.getSpot().getId()
+                ).orElseThrow(() ->
+                        new ResponseStatusException(
+                                HttpStatus.NOT_FOUND,
+                                "Không tìm thấy vị trí đỗ xe"
+                        )
+                );
+
+        // 6. Kiểm tra lịch đặt chỗ còn hiệu lực
+        long remainingReservations =
+                reservationRepository.countActiveReservationsForSpot(
+                        spot.getId(),
+                        checkOutTime
+                );
+
+        // 7. Giải phóng vị trí ngay khi Checkout
+        // Có booking tương lai => RESERVED
+        // Không có booking tương lai => AVAILABLE
+        spot.release(remainingReservations > 0);
+
+        spotRepository.save(spot);
+
+        // 8. Lưu phiên gửi xe
+        ParkingSession saved =
+                sessionRepository.save(session);
+
+        // 9. Tự động tạo hóa đơn
         paymentService.createPayment(sessionCode.trim());
-
-        // =====================================
-        // 6. TRẢ KẾT QUẢ CHECK-OUT
-        // =====================================
 
         return ParkingSessionResponse.from(saved);
     }
@@ -618,7 +651,7 @@ public class ParkingSessionService {
 
         return sessionRepository
                 .findByStatusInOrderByCheckInTimeDesc(
-                        OCCUPYING_STATUSES
+                        UNFINISHED_SESSION_STATUSES
                 )
                 .stream()
                 .map(ParkingSessionResponse::from)

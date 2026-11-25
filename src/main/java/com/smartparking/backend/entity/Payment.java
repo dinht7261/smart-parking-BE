@@ -90,6 +90,19 @@ public class Payment {
     @Column(name = "parking_fee", nullable = false, precision = 15, scale = 0)
     private BigDecimal parkingFee;
 
+    // Số giờ Check-in muộn
+    @Column(name = "reservation_hold_hours", nullable = false)
+    private int reservationHoldHours;
+
+    // Phụ phí giữ chỗ
+    @Column(
+            name = "reservation_hold_fee",
+            nullable = false,
+            precision = 15,
+            scale = 0
+    )
+    private BigDecimal reservationHoldFee;
+
     // Số đêm vi phạm
     @Column(name = "violation_nights", nullable = false)
     private int violationNights;
@@ -168,6 +181,8 @@ public class Payment {
             BigDecimal parkingFee,
             int violationNights,
             BigDecimal overnightPenalty,
+            int reservationHoldHours,
+            BigDecimal reservationHoldFee,
             BigDecimal amount,
             PaymentMethod paymentMethod
     ) {
@@ -205,7 +220,9 @@ public class Payment {
         }
 
         if (amount.compareTo(
-                parkingFee.add(overnightPenalty)
+                parkingFee
+                        .add(reservationHoldFee)
+                        .add(overnightPenalty)
         ) != 0) {
             throw new IllegalArgumentException(
                     "Tổng tiền không khớp chi tiết hóa đơn"
@@ -218,11 +235,28 @@ public class Payment {
             );
         }
 
+        if (billableHours <= 0
+                || reservationHoldHours < 0
+                || violationNights < 0) {
+            throw new IllegalArgumentException(
+                    "Thông tin thời gian tính phí không hợp lệ"
+            );
+        }
+
+        if (reservationHoldFee == null
+                || reservationHoldFee.signum() < 0) {
+            throw new IllegalArgumentException(
+                    "Phụ phí giữ chỗ không hợp lệ"
+            );
+        }
+
         this.paymentCode = paymentCode;
         this.parkingSession = parkingSession;
 
         this.billableHours = billableHours;
         this.parkingFee = parkingFee;
+        this.reservationHoldHours = reservationHoldHours;
+        this.reservationHoldFee = reservationHoldFee;
         this.violationNights = violationNights;
         this.overnightPenalty = overnightPenalty;
 
@@ -367,5 +401,13 @@ public class Payment {
 
     public BigDecimal getOvernightPenalty() {
         return overnightPenalty;
+    }
+
+    public int getReservationHoldHours() {
+        return reservationHoldHours;
+    }
+
+    public BigDecimal getReservationHoldFee() {
+        return reservationHoldFee;
     }
 }

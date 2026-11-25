@@ -4,7 +4,10 @@ package com.smartparking.backend.service;
 import com.smartparking.backend.entity.Payment;
 import com.smartparking.backend.entity.ParkingSession;
 import com.smartparking.backend.entity.Reservation;
+import com.smartparking.backend.entity.ParkingSpot;
 
+import com.smartparking.backend.repository.ParkingSpotRepository;
+import com.smartparking.backend.repository.ReservationRepository;
 import com.smartparking.backend.enums.PaymentMethod;
 import com.smartparking.backend.enums.PaymentStatus;
 import com.smartparking.backend.enums.ParkingSessionStatus;
@@ -30,6 +33,9 @@ import java.util.UUID;
 @Service
 public class PaymentService {
 
+    private final ParkingSpotRepository spotRepository;
+
+    private final ReservationRepository reservationRepository;
     private final PaymentRepository paymentRepository;
     private final ParkingSessionRepository sessionRepository;
     private final OvernightRequestRepository overnightRequestRepository;
@@ -40,7 +46,8 @@ public class PaymentService {
 
     private static final BigDecimal HOURLY_RATE =
             BigDecimal.valueOf(5000);
-
+    private static final BigDecimal RESERVATION_HOLD_HOURLY_RATE =
+            BigDecimal.valueOf(5000);
     private static final BigDecimal OVERNIGHT_PENALTY =
             BigDecimal.valueOf(100000);
 
@@ -52,11 +59,15 @@ public class PaymentService {
     public PaymentService(
             OvernightRequestRepository overnightRequestRepository,
             PaymentRepository paymentRepository,
-            ParkingSessionRepository sessionRepository
+            ParkingSessionRepository sessionRepository,
+            ParkingSpotRepository spotRepository,
+            ReservationRepository reservationRepository
     ) {
 
         this.paymentRepository = paymentRepository;
         this.sessionRepository = sessionRepository;
+        this.spotRepository = spotRepository;
+        this.reservationRepository = reservationRepository;
         this.overnightRequestRepository = overnightRequestRepository;
     }
 
@@ -131,6 +142,17 @@ public class PaymentService {
         );
 
         // =====================================
+// TÍNH PHỤ PHÍ GIỮ CHỖ DO CHECK-IN MUỘN
+// =====================================
+
+        int reservationHoldHours =
+                calculateReservationHoldHours(session);
+
+        BigDecimal reservationHoldFee =
+                RESERVATION_HOLD_HOURLY_RATE.multiply(
+                        BigDecimal.valueOf(reservationHoldHours)
+                );
+        // =====================================
         // TÍNH SỐ ĐÊM VI PHẠM
         // KIỂM TRA TỪNG YÊU CẦU TRONG DATABASE
         // =====================================
@@ -161,7 +183,9 @@ public class PaymentService {
         // =====================================
 
         BigDecimal totalAmount =
-                parkingFee.add(overnightPenalty);
+                parkingFee
+                        .add(reservationHoldFee)
+                        .add(overnightPenalty);
 
         // =====================================
         // TẠO GIAO DỊCH
@@ -172,12 +196,13 @@ public class PaymentService {
                 session,
                 billableHours,
                 parkingFee,
+                reservationHoldHours,
+                reservationHoldFee,
                 violationNights,
                 overnightPenalty,
                 totalAmount,
                 PaymentMethod.SIMULATED
         );
-
         return paymentRepository.save(payment);
     }
 
@@ -207,6 +232,61 @@ public class PaymentService {
         // Làm tròn lên giờ tiếp theo
         return Math.toIntExact(
                 (seconds + 3599) / 3600
+        );
+    }
+
+
+    // =====================================
+    // TÍNH SỐ GIỜ CHECK-IN MUỘN
+    // =====================================
+
+    private int calculateReservationHoldHours(
+            ParkingSession session
+    ) {
+
+        // Khách vãng lai không có Booking
+        if (session.getReservation() == null) {
+            return 0;
+        }
+
+        Reservation reservation =
+                session.getReservation();
+
+        LocalDateTime reservationStartTime =
+                reservation.getStartTime();
+
+        LocalDateTime checkInTime =
+                session.getCheckInTime();
+
+        if (reservationStartTime == null ||
+                checkInTime == null) {
+
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Thiếu thời gian Booking hoặc Check-in"
+            );
+        }
+
+        // Check-in đúng giờ hoặc sớm hơn
+        // Không tính phụ phí
+        if (!checkInTime.isAfter(reservationStartTime)) {
+            return 0;
+        }
+
+        // Tính thời gian khách đến muộn
+        Duration delay = Duration.between(
+                reservationStartTime,
+                checkInTime
+        );
+
+        // Làm tròn lên giờ tiếp theo
+        long fullHours = delay.toHours();
+
+        boolean hasRemainingTime =
+                !delay.minusHours(fullHours).isZero();
+
+        return Math.toIntExact(
+                fullHours + (hasRemainingTime ? 1 : 0)
         );
     }
 
@@ -305,13 +385,13 @@ public class PaymentService {
     public Payment confirmPayment(String paymentCode) {
 
         if (paymentCode == null || paymentCode.isBlank()) {
-
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
                     "Mã thanh toán không được để trống"
             );
         }
 
+        // 1. Tìm và khóa giao dịch
         Payment payment =
                 paymentRepository.findByPaymentCodeForUpdate(
                         paymentCode.trim()
@@ -328,47 +408,34 @@ public class PaymentService {
         }
 
         if (payment.getStatus() != PaymentStatus.PENDING) {
-
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
                     "Giao dịch không ở trạng thái chờ thanh toán"
             );
         }
 
-        ParkingSession session =
-                payment.getParkingSession();
+        // 2. Lấy phiên gửi xe
+        ParkingSession session = payment.getParkingSession();
 
         if (session.getStatus()
                 != ParkingSessionStatus.AWAITING_PAYMENT) {
-
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
-                    "Phiên gửi xe không sẵn sàng hoàn tất"
+                    "Phiên gửi xe không sẵn sàng thanh toán"
             );
         }
 
-        // 1. Xác nhận thanh toán thành công
+        // 3. Xác nhận thanh toán
         payment.markSuccess(LocalDateTime.now());
 
-        // 2. Hoàn tất phiên gửi xe
+        // 4. Hoàn tất phiên gửi xe
         session.complete();
-
-        // 3. Giải phóng vị trí đỗ xe
-        session.getSpot().release();
-
-        // 4. Hoàn tất Reservation nếu có
-        Reservation reservation =
-                session.getReservation();
-
-        if (reservation != null) {
-            reservation.markCompleted();
-        }
 
         sessionRepository.save(session);
 
+        // 5. Lưu giao dịch
         return paymentRepository.save(payment);
     }
-
 
     // =====================================
     // 5. SINH MÃ GIAO DỊCH

@@ -27,9 +27,15 @@ public record PaymentResponse(
         // Đăng ký qua đêm
         boolean overnightRequested,
 
-        // Chi tiết hóa đơn
+// Chi tiết hóa đơn
         int billableHours,
         BigDecimal parkingFee,
+
+// Phụ phí giữ chỗ do Check-in muộn
+        int reservationHoldHours,
+        BigDecimal reservationHoldFee,
+
+// Phạt qua đêm
         int violationNights,
         BigDecimal overnightPenalty,
 
@@ -67,6 +73,10 @@ public record PaymentResponse(
 
                 payment.getBillableHours(),
                 payment.getParkingFee(),
+
+                payment.getReservationHoldHours(),
+                payment.getReservationHoldFee(),
+
                 payment.getViolationNights(),
                 payment.getOvernightPenalty(),
 
