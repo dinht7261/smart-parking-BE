@@ -52,8 +52,9 @@ public class ParkingSpot {
     }
 
 
-    // Giải phóng vị trí sau khi thanh toán
-    public void release() {
+    // Giải phóng vị trí sau khi thanh toán.
+    // Giữ RESERVED nếu vị trí vẫn còn lịch đặt chỗ trong tương lai.
+    public void release(boolean hasFutureReservations) {
 
         if (status != ParkingSpotStatus.OCCUPIED) {
 
@@ -62,7 +63,14 @@ public class ParkingSpot {
             );
         }
 
-        this.status = ParkingSpotStatus.AVAILABLE;
+        this.status = hasFutureReservations
+                ? ParkingSpotStatus.RESERVED
+                : ParkingSpotStatus.AVAILABLE;
+    }
+
+    // Giữ tương thích với các luồng cũ không cần kiểm tra lịch đặt chỗ.
+    public void release() {
+        release(false);
     }
 
     public Long getId() { return id; }

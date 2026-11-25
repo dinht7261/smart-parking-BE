@@ -3,6 +3,7 @@ package com.smartparking.backend.service;
 
 import com.smartparking.backend.entity.Payment;
 import com.smartparking.backend.entity.ParkingSession;
+import com.smartparking.backend.entity.ParkingSpot;
 import com.smartparking.backend.entity.Reservation;
 
 import com.smartparking.backend.enums.PaymentMethod;
@@ -11,6 +12,8 @@ import com.smartparking.backend.enums.ParkingSessionStatus;
 
 import com.smartparking.backend.repository.PaymentRepository;
 import com.smartparking.backend.repository.ParkingSessionRepository;
+import com.smartparking.backend.repository.ParkingSpotRepository;
+import com.smartparking.backend.repository.ReservationRepository;
 import com.smartparking.backend.repository.OvernightRequestRepository;
 
 import com.smartparking.backend.response.PaymentResponse;
@@ -32,6 +35,8 @@ public class PaymentService {
 
     private final PaymentRepository paymentRepository;
     private final ParkingSessionRepository sessionRepository;
+    private final ParkingSpotRepository spotRepository;
+    private final ReservationRepository reservationRepository;
     private final OvernightRequestRepository overnightRequestRepository;
 
     // =====================================
@@ -52,11 +57,15 @@ public class PaymentService {
     public PaymentService(
             OvernightRequestRepository overnightRequestRepository,
             PaymentRepository paymentRepository,
-            ParkingSessionRepository sessionRepository
+            ParkingSessionRepository sessionRepository,
+            ParkingSpotRepository spotRepository,
+            ReservationRepository reservationRepository
     ) {
 
         this.paymentRepository = paymentRepository;
         this.sessionRepository = sessionRepository;
+        this.spotRepository = spotRepository;
+        this.reservationRepository = reservationRepository;
         this.overnightRequestRepository = overnightRequestRepository;
     }
 
@@ -353,10 +362,8 @@ public class PaymentService {
         // 2. Hoàn tất phiên gửi xe
         session.complete();
 
-        // 3. Giải phóng vị trí đỗ xe
-        session.getSpot().release();
-
-        // 4. Hoàn tất Reservation nếu có
+        // 3. Hoàn tất Reservation hiện tại trước khi đếm
+        // các lịch đặt chỗ còn hiệu lực của vị trí.
         Reservation reservation =
                 session.getReservation();
 
@@ -364,6 +371,39 @@ public class PaymentService {
             reservation.markCompleted();
         }
 
+        // 4. Khóa vị trí để đồng bộ với nghiệp vụ đặt chỗ.
+        ParkingSpot spot =
+                spotRepository.findByIdForUpdate(
+                        session.getSpot().getId()
+                ).orElseThrow(() ->
+                        new ResponseStatusException(
+                                HttpStatus.NOT_FOUND,
+                                "Không tìm thấy vị trí đỗ xe của phiên"
+                        )
+                );
+
+        // 5. Dùng thời điểm OUT Clock của phiên, không dùng
+        // giờ thực của máy chủ để kiểm tra lịch đặt tương lai.
+        LocalDateTime checkOutTime = session.getCheckOutTime();
+
+        if (checkOutTime == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Phiên gửi xe chưa có thời gian Check-out"
+            );
+        }
+
+        long remainingReservations =
+                reservationRepository.countActiveReservationsForSpot(
+                        spot.getId(),
+                        checkOutTime
+                );
+
+        // 6. Chỉ chuyển về AVAILABLE khi không còn lịch đặt.
+        // Nếu vẫn còn lịch đặt trong tương lai, giữ RESERVED.
+        spot.release(remainingReservations > 0);
+
+        spotRepository.save(spot);
         sessionRepository.save(session);
 
         return paymentRepository.save(payment);
