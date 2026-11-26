@@ -50,14 +50,13 @@ public class ReservationService {
     public ReservationResponse create(ReservationRequest request) {
 
         // Kiểm tra thời gian
-        if (request.startTime() == null ||
-                request.endTime() == null ||
-                !request.endTime().isAfter(request.startTime())) {
+        if (request.startTime() == null) {
 
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
-                    "Thời gian kết thúc phải sau thời gian bắt đầu"
+                    "Thời gian bắt đầu không hợp lệ"
             );
+
         }
 
         // Tìm tài khoản người dùng
@@ -95,18 +94,18 @@ public class ReservationService {
         }
 
         // Kiểm tra trùng lịch đặt chỗ
-        long overlapping =
-                reservationRepository.countOverlappingReservations(
-                        spot.getId(),
-                        request.startTime(),
-                        request.endTime()
+        long activeReservations =
+                reservationRepository.countActiveReservationsForSpot(
+                        spot.getId()
                 );
 
-        if (overlapping > 0) {
+        if (activeReservations > 0) {
+
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
-                    "Vị trí đỗ xe đã có người đặt trong khoảng thời gian này"
+                    "Vị trí đỗ xe đã có Reservation đang hiệu lực"
             );
+
         }
 
         // Tạo mã đặt chỗ tự động
@@ -122,7 +121,7 @@ public class ReservationService {
                 spot,
                 user,
                 request.startTime(),
-                request.endTime(),
+                null,
                 request.overnightRequested()
         );
 
@@ -212,8 +211,7 @@ public class ReservationService {
 
         long remainingReservations =
                 reservationRepository.countActiveReservationsForSpot(
-                        spot.getId(),
-                        LocalDateTime.now()
+                        spot.getId()
                 );
 
         // Chỉ giải phóng vị trí khi không còn lịch đặt
@@ -340,8 +338,7 @@ public class ReservationService {
 // Kiểm tra còn lịch đặt chỗ nào hiệu lực không
         long remainingReservations =
                 reservationRepository.countActiveReservationsForSpot(
-                        spot.getId(),
-                        LocalDateTime.now()
+                        spot.getId()
                 );
 
 // Chỉ giải phóng khi không còn lịch đặt

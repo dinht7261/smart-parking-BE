@@ -2,18 +2,24 @@
 package com.smartparking.backend.service;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
+
 import com.smartparking.backend.entity.ParkingSession;
 import com.smartparking.backend.entity.ParkingSpot;
 import com.smartparking.backend.entity.Reservation;
 import com.smartparking.backend.entity.SimulationClock;
 import com.smartparking.backend.entity.User;
-import com.smartparking.backend.repository.UserRepository;
+
 import com.smartparking.backend.enums.ClockType;
 import com.smartparking.backend.enums.ParkingSessionStatus;
 import com.smartparking.backend.enums.ParkingSessionType;
 import com.smartparking.backend.enums.ParkingSpotStatus;
 import com.smartparking.backend.enums.UserStatus;
 
+import com.smartparking.backend.repository.UserRepository;
 import com.smartparking.backend.repository.ParkingSessionRepository;
 import com.smartparking.backend.repository.ParkingSpotRepository;
 import com.smartparking.backend.repository.ReservationRepository;
@@ -21,18 +27,10 @@ import com.smartparking.backend.repository.ReservationRepository;
 import com.smartparking.backend.request.ParkingSessionCheckInRequest;
 import com.smartparking.backend.response.ParkingSessionResponse;
 
-import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
-
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
-
-import static com.smartparking.backend.enums.ParkingSessionType.RESERVATION;
-import static com.smartparking.backend.enums.ParkingSessionType.WALK_IN;
 
 @Service
 public class ParkingSessionService {
@@ -47,8 +45,10 @@ public class ParkingSessionService {
     private final ReservationRepository reservationRepository;
     private final SimulationClockService clockService;
 
-    // Các phiên chưa hoàn tất.
-// AWAITING_PAYMENT vẫn chặn user/biển số tạo phiên mới.
+    // =====================================
+    // TRẠNG THÁI PHIÊN CHƯA HOÀN TẤT
+    // =====================================
+
     private static final List<ParkingSessionStatus>
             UNFINISHED_SESSION_STATUSES =
             List.of(
@@ -56,19 +56,27 @@ public class ParkingSessionService {
                     ParkingSessionStatus.AWAITING_PAYMENT
             );
 
-    // Chỉ phiên ACTIVE mới thực sự chiếm vị trí đỗ.
+    // Chỉ ACTIVE mới chiếm vị trí thực tế.
+
     private static final List<ParkingSessionStatus>
             PARKING_SPOT_OCCUPYING_STATUSES =
             List.of(
                     ParkingSessionStatus.ACTIVE
             );
 
-    private static final List<String> BLOCKING_RESERVATION_STATUSES =
+    // Những Reservation đang giữ chỗ.
+
+    private static final List<String>
+            BLOCKING_RESERVATION_STATUSES =
             List.of(
                     "PENDING",
                     "CONFIRMED",
                     "CHECKED_IN"
             );
+
+    // =====================================
+    // CONSTRUCTOR
+    // =====================================
 
     public ParkingSessionService(
             ParkingSessionRepository sessionRepository,
@@ -87,11 +95,9 @@ public class ParkingSessionService {
         this.paymentService = paymentService;
     }
 
-
     // =====================================
     // 1. CHECK-IN CHUNG
     // =====================================
-
 
     @Transactional
     public ParkingSessionResponse checkIn(
@@ -108,6 +114,7 @@ public class ParkingSessionService {
         // 1. XÁC THỰC QR CỔNG IN
 
         if (request.qrPayload() == null
+                || expectedInQrPayload == null
                 || !expectedInQrPayload.equals(
                 request.qrPayload().trim()
         )) {
@@ -145,8 +152,6 @@ public class ParkingSessionService {
                 user.getLicensePlate()
         );
 
-        // Nếu FE gửi biển số thì phải khớp Database
-
         if (request.licensePlate() != null
                 && !request.licensePlate().isBlank()) {
 
@@ -162,19 +167,18 @@ public class ParkingSessionService {
             }
         }
 
-        // 4. LẤY THỜI GIAN MÔ PHỎNG
+        // 4. LẤY THỜI GIAN IN CLOCK
 
+        LocalDateTime checkInTime =
+                getSimulatedTime(ClockType.IN);
 
-        LocalDateTime checkInTime = getSimulatedTime(
-                ClockType.IN
-        );
-
-        // 5. KIỂM TRA USER ĐÃ CÓ XE TRONG BÃI CHƯA
+        // 5. KIỂM TRA USER ĐÃ CÓ PHIÊN GỬI XE CHƯA
 
         if (sessionRepository.existsByUser_IdAndStatusIn(
                 user.getId(),
                 UNFINISHED_SESSION_STATUSES
         )) {
+
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
                     "Tài khoản này đang có xe trong bãi"
@@ -187,6 +191,7 @@ public class ParkingSessionService {
                 licensePlate,
                 UNFINISHED_SESSION_STATUSES
         )) {
+
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
                     "Xe này đang có phiên gửi xe chưa hoàn tất"
@@ -194,12 +199,13 @@ public class ParkingSessionService {
         }
 
         // 7. TÌM RESERVATION CỦA USER
+        // Không sử dụng endTime vì endTime = NULL
+        // cho đến khi khách thực sự Check-out.
 
         List<Reservation> candidates =
                 reservationRepository.findCheckInCandidatesForUpdate(
                         user.getId(),
-                        licensePlate,
-                        checkInTime
+                        licensePlate
                 );
 
         Reservation matchedReservation = null;
@@ -208,38 +214,28 @@ public class ParkingSessionService {
 
         for (Reservation reservation : candidates) {
 
-            // Chưa đến thời gian đặt chỗ
+            // Khách được phép đến sớm tối đa 30 phút
+            LocalDateTime earliestAllowedCheckIn =
+                    reservation.getStartTime().minusMinutes(30);
 
-            if (checkInTime.isBefore(
-                    reservation.getStartTime()
-            )) {
+            // Nếu đến sớm hơn 30 phút thì chưa được Check-in
+            if (checkInTime.isBefore(earliestAllowedCheckIn)) {
                 hasFutureReservation = true;
+                continue;
             }
 
-            // Kiểm tra Reservation đang trong thời gian hiệu lực
-
-            boolean insideReservationTime =
-                    !checkInTime.isBefore(
-                            reservation.getStartTime()
-                    )
-                            && checkInTime.isBefore(
-                            reservation.getEndTime()
-                    );
-
-            if (insideReservationTime) {
-
-                if (matchedReservation != null) {
-                    throw new ResponseStatusException(
-                            HttpStatus.CONFLICT,
-                            "User có nhiều lịch đặt chỗ cùng thời điểm"
-                    );
-                }
-
-                matchedReservation = reservation;
+            // Tìm thấy Reservation hợp lệ
+            if (matchedReservation != null) {
+                throw new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "User có nhiều lịch đặt chỗ cùng thời điểm"
+                );
             }
+
+            matchedReservation = reservation;
         }
 
-        // 8. NẾU CÓ RESERVATION HỢP LỆ
+        // 8. CÓ RESERVATION PHÙ HỢP
 
         if (matchedReservation != null) {
 
@@ -250,13 +246,13 @@ public class ParkingSessionService {
             );
         }
 
-        // 9. NẾU CÓ LỊCH ĐẶT TRONG TƯƠNG LAI
+        // 9. CÓ RESERVATION TRONG TƯƠNG LAI
 
         if (hasFutureReservation) {
 
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
-                    "Chưa đến thời gian Check-in của lịch đặt chỗ"
+                    "Chỉ được Check-in sớm tối đa 30 phút so với giờ đặt chỗ"
             );
         }
 
@@ -271,18 +267,9 @@ public class ParkingSessionService {
         );
     }
 
-
-
     // =====================================
     // 2. CHECK-IN KHÁCH VÃNG LAI
     // =====================================
-
-
-    // =====================================
-    // 2. CHECK-IN KHÁCH VÃNG LAI
-    // =====================================
-
-
 
     private ParkingSessionResponse checkInWalkIn(
             User user,
@@ -304,9 +291,10 @@ public class ParkingSessionService {
 
         for (ParkingSpot candidate : availableSpots) {
 
-            ParkingSpot spot = spotRepository.findByIdForUpdate(
-                    candidate.getId()
-            ).orElse(null);
+            ParkingSpot spot =
+                    spotRepository.findByIdForUpdate(
+                            candidate.getId()
+                    ).orElse(null);
 
             if (spot == null) {
                 continue;
@@ -316,7 +304,7 @@ public class ParkingSessionService {
                 continue;
             }
 
-            // Kiểm tra vị trí có xe chưa
+            // KIỂM TRA VỊ TRÍ ĐÃ CÓ XE CHƯA
 
             boolean occupied =
                     sessionRepository.existsBySpot_IdAndStatusIn(
@@ -328,21 +316,21 @@ public class ParkingSessionService {
                 continue;
             }
 
-            // Không lấy vị trí đã có người đặt
+            // KIỂM TRA VỊ TRÍ ĐÃ CÓ RESERVATION CHƯA
+            // Không sử dụng endTime.
 
             boolean reserved =
-                    reservationRepository
-                            .existsBySpot_IdAndStatusInAndEndTimeAfter(
-                                    spot.getId(),
-                                    BLOCKING_RESERVATION_STATUSES,
-                                    checkInTime
-                            );
+                    reservationRepository.existsBySpot_IdAndStatusIn(
+                            spot.getId(),
+                            BLOCKING_RESERVATION_STATUSES
+                    );
 
             if (reserved) {
                 continue;
             }
 
             selectedSpot = spot;
+
             break;
         }
 
@@ -356,13 +344,12 @@ public class ParkingSessionService {
             );
         }
 
-// 4. GIỮ VỊ TRÍ CHO KHÁCH
-// CHƯA XÁC NHẬN XE ĐÃ ĐỖ
+        // 4. GIỮ VỊ TRÍ CHO KHÁCH
+        // Chờ cảm biến xác nhận xe đã đỗ.
 
         selectedSpot.reserve();
 
         spotRepository.save(selectedSpot);
-
 
         // 5. TẠO PARKING SESSION
 
@@ -381,19 +368,15 @@ public class ParkingSessionService {
 
         // 6. LƯU DATABASE
 
-        ParkingSession saved = sessionRepository.save(session);
-
-        // 7. TRẢ RESPONSE
+        ParkingSession saved =
+                sessionRepository.save(session);
 
         return ParkingSessionResponse.from(saved);
     }
 
-
-
     // =====================================
     // 3. CHECK-IN KHÁCH ĐÃ ĐẶT CHỖ
     // =====================================
-
 
     private ParkingSessionResponse checkInReservation(
             User user,
@@ -401,7 +384,7 @@ public class ParkingSessionService {
             LocalDateTime checkInTime
     ) {
 
-        // 1. KIỂM TRA RESERVATION ĐÃ CHECK-IN CHƯA
+        // 1. KIỂM TRA ĐÃ CHECK-IN CHƯA
 
         if (sessionRepository.existsByReservation_Id(
                 reservation.getId()
@@ -413,7 +396,7 @@ public class ParkingSessionService {
             );
         }
 
-        // 2. KIỂM TRA TRẠNG THÁI RESERVATION
+        // 2. KIỂM TRA TRẠNG THÁI
 
         if (!"PENDING".equals(reservation.getStatus())
                 && !"CONFIRMED".equals(reservation.getStatus())) {
@@ -455,27 +438,35 @@ public class ParkingSessionService {
             );
         }
 
-        // 5. KIỂM TRA THỜI GIAN
+// 5. KIỂM TRA THỜI GIAN CHECK-IN
 
-        if (checkInTime.isBefore(reservation.getStartTime())
-                || !checkInTime.isBefore(
-                reservation.getEndTime()
-        )) {
+// Cho phép khách đến sớm tối đa 30 phút
+        LocalDateTime earliestAllowedCheckIn =
+                reservation.getStartTime().minusMinutes(30);
+
+        if (checkInTime.isBefore(earliestAllowedCheckIn)) {
 
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
-                    "Thời điểm hiện tại nằm ngoài thời gian đặt chỗ"
+                    "Chỉ được Check-in sớm tối đa 30 phút so với giờ đặt chỗ"
             );
         }
 
+        // Check-in muộn vẫn được phép.
+        // Giữ nguyên startTime để PaymentService
+        // tính reservationHoldHours và reservationHoldFee.
+
         // 6. LẤY VỊ TRÍ ĐÃ ĐẶT VÀ KHÓA BẢN GHI
 
-        ParkingSpot spot = spotRepository.findByIdForUpdate(
-                reservation.getSpot().getId()
-        ).orElseThrow(() -> new ResponseStatusException(
-                HttpStatus.NOT_FOUND,
-                "Không tìm thấy vị trí đã đặt"
-        ));
+        ParkingSpot spot =
+                spotRepository.findByIdForUpdate(
+                        reservation.getSpot().getId()
+                ).orElseThrow(() ->
+                        new ResponseStatusException(
+                                HttpStatus.NOT_FOUND,
+                                "Không tìm thấy vị trí đã đặt"
+                        )
+                );
 
         // 7. KIỂM TRA TRẠNG THÁI VỊ TRÍ
 
@@ -514,14 +505,11 @@ public class ParkingSessionService {
             );
         }
 
-
-// 10. GIỮ VỊ TRÍ ĐÃ ĐẶT
-// CHỜ CẢM BIẾN XÁC NHẬN XE ĐÃ ĐỖ
+        // 10. GIỮ VỊ TRÍ ĐÃ ĐẶT
 
         spot.reserve();
 
         spotRepository.save(spot);
-
 
         // 11. CẬP NHẬT RESERVATION
 
@@ -546,31 +534,31 @@ public class ParkingSessionService {
 
         // 13. LƯU DATABASE
 
-        ParkingSession saved = sessionRepository.save(session);
-
-        // 14. TRẢ RESPONSE
+        ParkingSession saved =
+                sessionRepository.save(session);
 
         return ParkingSessionResponse.from(saved);
     }
-
-
 
     // =====================================
     // 4. CHECK-OUT
     // =====================================
 
-
     @Transactional
-    public ParkingSessionResponse checkOut(String sessionCode) {
+    public ParkingSessionResponse checkOut(
+            String sessionCode
+    ) {
 
         if (sessionCode == null || sessionCode.isBlank()) {
+
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
                     "Mã phiên gửi xe không được để trống"
             );
         }
 
-        // 1. Tìm và khóa phiên gửi xe
+        // 1. TÌM VÀ KHÓA PARKING SESSION
+
         ParkingSession session =
                 sessionRepository.findBySessionCodeForUpdate(
                         sessionCode.trim()
@@ -582,35 +570,45 @@ public class ParkingSessionService {
                 );
 
         if (session.getStatus() != ParkingSessionStatus.ACTIVE) {
+
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
                     "Phiên gửi xe không ở trạng thái ACTIVE"
             );
         }
 
-        // 2. Lấy thời gian OUT Clock
+        // 2. LẤY THỜI GIAN OUT CLOCK
+
         LocalDateTime checkOutTime =
                 getSimulatedTime(ClockType.OUT);
 
-        if (!checkOutTime.isAfter(session.getCheckInTime())) {
+        if (!checkOutTime.isAfter(
+                session.getCheckInTime()
+        )) {
+
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
                     "Thời gian OUT Clock phải sau thời gian IN Clock"
             );
         }
 
-        // 3. Chuyển phiên sang chờ thanh toán
+        // 3. CHUYỂN SESSION SANG CHỜ THANH TOÁN
+
         session.checkOut(checkOutTime);
 
-        // 4. Hoàn tất Reservation hiện tại nếu có
+        // 4. HOÀN TẤT RESERVATION NẾU CÓ
+
         Reservation reservation = session.getReservation();
 
         if (reservation != null) {
+
             reservation.markCompleted(checkOutTime);
+
             reservationRepository.save(reservation);
         }
 
-        // 5. Khóa vị trí đỗ
+        // 5. KHÓA VỊ TRÍ ĐỖ
+
         ParkingSpot spot =
                 spotRepository.findByIdForUpdate(
                         session.getSpot().getId()
@@ -621,31 +619,37 @@ public class ParkingSessionService {
                         )
                 );
 
-        // 6. Kiểm tra lịch đặt chỗ còn hiệu lực
+        // 6. KIỂM TRA RESERVATION KHÁC CÒN HIỆU LỰC
+        // Reservation hiện tại đã chuyển COMPLETED.
+        // Không sử dụng endTime để kiểm tra nữa.
+
         long remainingReservations =
                 reservationRepository.countActiveReservationsForSpot(
-                        spot.getId(),
-                        checkOutTime
+                        spot.getId()
                 );
 
-        // 7. Giải phóng vị trí ngay khi Checkout
-        // Có booking tương lai => RESERVED
-        // Không có booking tương lai => AVAILABLE
+        // 7. GIẢI PHÓNG VỊ TRÍ
+
+        // Có Reservation khác => RESERVED
+        // Không còn Reservation => AVAILABLE
+
         spot.release(remainingReservations > 0);
 
         spotRepository.save(spot);
 
-        // 8. Lưu phiên gửi xe
+        // 8. LƯU PARKING SESSION
+
         ParkingSession saved =
                 sessionRepository.save(session);
 
-        // 9. Tự động tạo hóa đơn
-        paymentService.createPayment(sessionCode.trim());
+        // 9. TẠO HÓA ĐƠN
+
+        paymentService.createPayment(
+                sessionCode.trim()
+        );
 
         return ParkingSessionResponse.from(saved);
     }
-
-
 
     // =====================================
     // 5. LẤY DANH SÁCH XE ĐANG GỬI
@@ -663,7 +667,6 @@ public class ParkingSessionService {
                 .toList();
     }
 
-
     // =====================================
     // 6. LẤY LỊCH SỬ GỬI XE
     // =====================================
@@ -677,7 +680,6 @@ public class ParkingSessionService {
                 .map(ParkingSessionResponse::from)
                 .toList();
     }
-
 
     // =====================================
     // 7. TRA CỨU PHIÊN GỬI XE
@@ -699,30 +701,29 @@ public class ParkingSessionService {
         ParkingSession session =
                 sessionRepository.findBySessionCode(
                         sessionCode.trim()
-                ).orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND,
-                        "Không tìm thấy phiên gửi xe"
-                ));
+                ).orElseThrow(() ->
+                        new ResponseStatusException(
+                                HttpStatus.NOT_FOUND,
+                                "Không tìm thấy phiên gửi xe"
+                        )
+                );
 
         return ParkingSessionResponse.from(session);
     }
 
-
     // =====================================
-    // 8. LẤY THỜI GIAN TỪ SIMULATION CLOCK
+    // 8. LẤY THỜI GIAN SIMULATION CLOCK
     // =====================================
 
     private LocalDateTime getSimulatedTime(
             ClockType clockType
     ) {
 
-        SimulationClock clock = clockService.getByType(
-                clockType
-        );
+        SimulationClock clock =
+                clockService.getByType(clockType);
 
         return clock.getSimulatedTime();
     }
-
 
     // =====================================
     // 9. CHUẨN HÓA BIỂN SỐ
@@ -746,7 +747,6 @@ public class ParkingSessionService {
                 .replaceAll("\\s+", "");
     }
 
-
     // =====================================
     // 10. CHUẨN HÓA SỐ ĐIỆN THOẠI
     // =====================================
@@ -759,7 +759,6 @@ public class ParkingSessionService {
 
         return phone.trim();
     }
-
 
     // =====================================
     // 11. KIỂM TRA DỮ LIỆU BẮT BUỘC
@@ -781,9 +780,8 @@ public class ParkingSessionService {
         return value.trim();
     }
 
-
     // =====================================
-    // 12. TẠO MÃ PHIÊN GỬI XE
+    // 12. TẠO MÃ PHIÊN
     // =====================================
 
     private String generateSessionCode() {

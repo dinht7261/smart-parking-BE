@@ -4,7 +4,7 @@ package com.smartparking.backend.controller;
 import com.smartparking.backend.request.ReservationRequest;
 import com.smartparking.backend.response.ReservationResponse;
 import com.smartparking.backend.service.ReservationService;
-
+import org.springframework.web.bind.annotation.CrossOrigin;
 import jakarta.validation.Valid;
 
 import org.springframework.http.HttpStatus;
@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
+@CrossOrigin(origins = "http://localhost:4200")
 @RequestMapping("/api/v1/reservations")
 public class ReservationController {
 

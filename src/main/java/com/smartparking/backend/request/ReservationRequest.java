@@ -21,7 +21,8 @@ public record ReservationRequest(
         @NotNull(message = "Vui lòng chọn thời gian bắt đầu")
         LocalDateTime startTime,
 
-        @NotNull(message = "Vui lòng chọn thời gian kết thúc")
+        // Không bắt buộc.
+        // Backend sẽ tự cập nhật khi Check-out thực tế.
         LocalDateTime endTime,
 
         @Size(max = 20, message = "Số điện thoại tối đa 20 ký tự")
