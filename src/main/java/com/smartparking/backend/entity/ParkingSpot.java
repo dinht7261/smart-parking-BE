@@ -1,3 +1,4 @@
+
 package com.smartparking.backend.entity;
 
 import com.smartparking.backend.enums.ParkingSpotStatus;
@@ -14,13 +15,23 @@ import jakarta.persistence.UniqueConstraint;
 
 @Entity
 @Table(name = "PARKING_SPOTS", uniqueConstraints = {
-    @UniqueConstraint(name = "UQ_PARKING_SPOTS_LOCATION", columnNames = {"FLOOR_CODE", "SPOT_CODE"})
+        @UniqueConstraint(
+                name = "UQ_PARKING_SPOTS_LOCATION",
+                columnNames = {"FLOOR_CODE", "SPOT_CODE"}
+        )
 })
 public class ParkingSpot {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "parking_spot_generator")
-    @SequenceGenerator(name = "parking_spot_generator", sequenceName = "PARKING_SPOT_SEQ", allocationSize = 1)
+    @GeneratedValue(
+            strategy = GenerationType.SEQUENCE,
+            generator = "parking_spot_generator"
+    )
+    @SequenceGenerator(
+            name = "parking_spot_generator",
+            sequenceName = "PARKING_SPOT_SEQ",
+            allocationSize = 1
+    )
     @Column(name = "ID", nullable = false)
     private Long id;
 
@@ -37,7 +48,10 @@ public class ParkingSpot {
     protected ParkingSpot() {
     }
 
-    // Đưa vị trí vào trạng thái đang có xe
+    // =====================================
+    // 1. XÁC NHẬN XE ĐÃ ĐỖ
+    // =====================================
+
     public void occupy() {
 
         if (status != ParkingSpotStatus.AVAILABLE
@@ -51,37 +65,15 @@ public class ParkingSpot {
         this.status = ParkingSpotStatus.OCCUPIED;
     }
 
+    // =====================================
+    // 2. GIỮ VỊ TRÍ CHO KHÁCH
+    // =====================================
 
-    // Giải phóng vị trí sau khi thanh toán.
-    // Giữ RESERVED nếu vị trí vẫn còn lịch đặt chỗ trong tương lai.
-    public void release(boolean hasFutureReservations) {
-
-        if (status != ParkingSpotStatus.OCCUPIED) {
-
-            throw new IllegalStateException(
-                    "Vị trí không ở trạng thái OCCUPIED"
-            );
-        }
-
-        this.status = hasFutureReservations
-                ? ParkingSpotStatus.RESERVED
-                : ParkingSpotStatus.AVAILABLE;
-    }
-
-    // Giữ tương thích với các luồng cũ không cần kiểm tra lịch đặt chỗ.
-    public void release() {
-        release(false);
-    }
-
-    public Long getId() { return id; }
-    public String getFloorCode() { return floorCode; }
-    public String getSpotCode() { return spotCode; }
-    public ParkingSpotStatus getStatus() { return status; }
-
-    // Đánh dấu vị trí đã được đặt trước
     public void reserve() {
+
         if (status == ParkingSpotStatus.OCCUPIED ||
                 status == ParkingSpotStatus.MAINTENANCE) {
+
             throw new IllegalStateException(
                     "Vị trí không thể đặt trước"
             );
@@ -90,12 +82,57 @@ public class ParkingSpot {
         this.status = ParkingSpotStatus.RESERVED;
     }
 
-    // Đưa vị trí về trạng thái trống
-// Chỉ gọi khi đã xác nhận không còn đặt chỗ hoặc phiên gửi xe khác
+    // =====================================
+    // 3. GIẢI PHÓNG VỊ TRÍ
+    // =====================================
+
+    public void release(boolean hasFutureReservations) {
+
+        if (status != ParkingSpotStatus.OCCUPIED
+                && status != ParkingSpotStatus.RESERVED) {
+
+            throw new IllegalStateException(
+                    "Vị trí không thể giải phóng ở trạng thái hiện tại"
+            );
+        }
+
+        this.status = hasFutureReservations
+                ? ParkingSpotStatus.RESERVED
+                : ParkingSpotStatus.AVAILABLE;
+    }
+
+    public void release() {
+        release(false);
+    }
+
+    // =====================================
+    // 4. ĐƯA VỊ TRÍ VỀ TRỐNG
+    // =====================================
+
     public void makeAvailable() {
+
         if (status != ParkingSpotStatus.MAINTENANCE) {
             this.status = ParkingSpotStatus.AVAILABLE;
         }
     }
 
+    // =====================================
+    // 5. GETTERS
+    // =====================================
+
+    public Long getId() {
+        return id;
+    }
+
+    public String getFloorCode() {
+        return floorCode;
+    }
+
+    public String getSpotCode() {
+        return spotCode;
+    }
+
+    public ParkingSpotStatus getStatus() {
+        return status;
+    }
 }

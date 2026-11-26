@@ -356,11 +356,13 @@ public class ParkingSessionService {
             );
         }
 
-        // 4. CẬP NHẬT TRẠNG THÁI VỊ TRÍ
+// 4. GIỮ VỊ TRÍ CHO KHÁCH
+// CHƯA XÁC NHẬN XE ĐÃ ĐỖ
 
-        selectedSpot.occupy();
+        selectedSpot.reserve();
 
         spotRepository.save(selectedSpot);
+
 
         // 5. TẠO PARKING SESSION
 
@@ -512,11 +514,14 @@ public class ParkingSessionService {
             );
         }
 
-        // 10. CHIẾM DỤNG VỊ TRÍ
 
-        spot.occupy();
+// 10. GIỮ VỊ TRÍ ĐÃ ĐẶT
+// CHỜ CẢM BIẾN XÁC NHẬN XE ĐÃ ĐỖ
+
+        spot.reserve();
 
         spotRepository.save(spot);
+
 
         // 11. CẬP NHẬT RESERVATION
 
