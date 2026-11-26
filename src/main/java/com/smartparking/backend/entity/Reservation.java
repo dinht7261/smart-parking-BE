@@ -35,37 +35,35 @@ public class Reservation {
     @Column(name = "license_plate", nullable = false)
     private String licensePlate;
 
-    // Liên kết với vị trí đỗ xe
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "spot_id", nullable = false)
     private ParkingSpot spot;
 
-    // Liên kết với tài khoản người dùng
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
+    // Thời gian dự kiến khách đến
     @Column(name = "start_time", nullable = false)
     private LocalDateTime startTime;
 
-    @Column(name = "end_time", nullable = false)
+    // Thời gian Check-out thực tế
+    // NULL khi khách mới đặt chỗ
+    @Column(name = "end_time", nullable = true)
     private LocalDateTime endTime;
 
     @Column(name = "status", nullable = false)
     private String status;
 
-    // Khách có đăng ký gửi xe qua đêm hay không
     @Column(name = "overnight_requested", nullable = false)
     private boolean overnightRequested;
 
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
-    // Constructor mặc định dành cho JPA
     protected Reservation() {
     }
 
-    // Constructor tạo đặt chỗ mới
     public Reservation(
             String reservationCode,
             String customerName,
@@ -90,7 +88,6 @@ public class Reservation {
         this.status = "PENDING";
     }
 
-    // Tự động thiết lập dữ liệu trước khi lưu
     @PrePersist
     protected void onCreate() {
 
@@ -103,7 +100,10 @@ public class Reservation {
         }
     }
 
-    // Getters
+    // =====================================
+    // GETTERS
+    // =====================================
+
     public Long getId() {
         return id;
     }
@@ -151,15 +151,53 @@ public class Reservation {
     public boolean isOvernightRequested() {
         return overnightRequested;
     }
+
+    // =====================================
+    // DUYỆT RESERVATION
+    // =====================================
+
+    public void confirm() {
+
+        if (!"PENDING".equals(status)) {
+            throw new IllegalStateException(
+                    "Chỉ có thể duyệt Reservation đang chờ"
+            );
+        }
+
+        this.status = "CONFIRMED";
+    }
+
+    // =====================================
+    // TỪ CHỐI RESERVATION
+    // =====================================
+
+    public void reject() {
+
+        if (!"PENDING".equals(status)) {
+            throw new IllegalStateException(
+                    "Chỉ có thể từ chối Reservation đang chờ"
+            );
+        }
+
+        this.status = "REJECTED";
+    }
+
+    // =====================================
+    // HỦY RESERVATION
+    // =====================================
+
     public void cancel() {
         this.status = "CANCELLED";
     }
 
-    // Khách đã đến và Check-in thành công
+    // =====================================
+    // CHECK-IN
+    // =====================================
+
     public void markCheckedIn() {
 
-        if (!status.equals("PENDING")
-                && !status.equals("CONFIRMED")) {
+        if (!"PENDING".equals(status)
+                && !"CONFIRMED".equals(status)) {
 
             throw new IllegalStateException(
                     "Reservation không thể Check-in"
@@ -169,16 +207,27 @@ public class Reservation {
         this.status = "CHECKED_IN";
     }
 
+    // =====================================
+    // CHECK-OUT VÀ HOÀN TẤT
+    // =====================================
 
-    // Hoàn tất Reservation sau khi gửi xe
-    public void markCompleted() {
+    public void markCompleted(
+            LocalDateTime actualCheckOutTime
+    ) {
 
-        if (!status.equals("CHECKED_IN")) {
-
+        if (!"CHECKED_IN".equals(status)) {
             throw new IllegalStateException(
                     "Reservation chưa được Check-in"
             );
         }
+
+        if (actualCheckOutTime == null) {
+            throw new IllegalArgumentException(
+                    "Thời gian Check-out không hợp lệ"
+            );
+        }
+
+        this.endTime = actualCheckOutTime;
 
         this.status = "COMPLETED";
     }

@@ -79,4 +79,27 @@ public class ReservationController {
         return ResponseEntity.ok(response);
     }
 
+
+    @PatchMapping("/{reservationCode}/confirm")
+    public ResponseEntity<ReservationResponse> confirm(
+            @PathVariable String reservationCode
+    ) {
+
+        return ResponseEntity.ok(
+                service.confirm(reservationCode)
+        );
+    }
+
+
+    @PatchMapping("/{reservationCode}/reject")
+    public ResponseEntity<ReservationResponse> reject(
+            @PathVariable String reservationCode
+    ) {
+
+        return ResponseEntity.ok(
+                service.reject(reservationCode)
+        );
+    }
+
+
 }

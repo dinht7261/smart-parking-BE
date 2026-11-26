@@ -142,6 +142,93 @@ public class ReservationService {
     // 2. LẤY LỊCH SỬ ĐẶT CHỖ CỦA USER
     // =====================================
 
+
+    @Transactional
+    public ReservationResponse confirm(String reservationCode) {
+
+        if (reservationCode == null || reservationCode.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Mã đặt chỗ không được để trống"
+            );
+        }
+
+        Reservation reservation =
+                reservationRepository.findByReservationCodeForUpdate(
+                        reservationCode.trim()
+                ).orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Không tìm thấy thông tin đặt chỗ"
+                ));
+
+        if (!"PENDING".equals(reservation.getStatus())) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Reservation không còn ở trạng thái chờ duyệt"
+            );
+        }
+
+        reservation.confirm();
+
+        Reservation saved =
+                reservationRepository.saveAndFlush(reservation);
+
+        return ReservationResponse.from(saved);
+    }
+
+
+    @Transactional
+    public ReservationResponse reject(String reservationCode) {
+
+        if (reservationCode == null || reservationCode.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Mã đặt chỗ không được để trống"
+            );
+        }
+
+        Reservation reservation =
+                reservationRepository.findByReservationCodeForUpdate(
+                        reservationCode.trim()
+                ).orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Không tìm thấy thông tin đặt chỗ"
+                ));
+
+        if (!"PENDING".equals(reservation.getStatus())) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Reservation không còn ở trạng thái chờ duyệt"
+            );
+        }
+
+        reservation.reject();
+
+        Reservation saved =
+                reservationRepository.saveAndFlush(reservation);
+
+        // Kiểm tra vị trí còn Reservation hiệu lực không
+        ParkingSpot spot = reservation.getSpot();
+
+        long remainingReservations =
+                reservationRepository.countActiveReservationsForSpot(
+                        spot.getId(),
+                        LocalDateTime.now()
+                );
+
+        // Chỉ giải phóng vị trí khi không còn lịch đặt
+        if (remainingReservations == 0
+                && spot.getStatus() == ParkingSpotStatus.RESERVED) {
+
+            spot.makeAvailable();
+
+            parkingSpotRepository.save(spot);
+        }
+
+        return ReservationResponse.from(saved);
+    }
+
+
     @Transactional(readOnly = true)
     public List<ReservationResponse> listByUserCode(String userCode) {
 

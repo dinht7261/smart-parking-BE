@@ -606,7 +606,7 @@ public class ParkingSessionService {
         Reservation reservation = session.getReservation();
 
         if (reservation != null) {
-            reservation.markCompleted();
+            reservation.markCompleted(checkOutTime);
             reservationRepository.save(reservation);
         }
 
