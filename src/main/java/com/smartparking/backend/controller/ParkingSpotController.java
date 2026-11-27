@@ -1,5 +1,7 @@
 package com.smartparking.backend.controller;
 
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import com.smartparking.backend.response.AvailabilityResponse;
 import com.smartparking.backend.response.ParkingSpotResponse;
 import com.smartparking.backend.service.ParkingSpotService;
@@ -29,4 +31,28 @@ public class ParkingSpotController {
     public AvailabilityResponse availability() {
         return service.availability();
     }
+
+
+    // =====================================
+    // 3. BẮT ĐẦU BẢO TRÌ VỊ TRÍ
+    // =====================================
+
+    @PutMapping("/{spotId}/maintenance")
+    public ParkingSpotResponse startMaintenance(
+            @PathVariable Long spotId
+    ) {
+        return service.startMaintenance(spotId);
+    }
+
+    // =====================================
+    // 4. KẾT THÚC BẢO TRÌ VỊ TRÍ
+    // =====================================
+
+    @PutMapping("/{spotId}/maintenance/end")
+    public ParkingSpotResponse endMaintenance(
+            @PathVariable Long spotId
+    ) {
+        return service.endMaintenance(spotId);
+    }
+
 }

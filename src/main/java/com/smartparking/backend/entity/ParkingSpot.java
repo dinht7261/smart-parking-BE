@@ -117,7 +117,39 @@ public class ParkingSpot {
     }
 
     // =====================================
-    // 5. GETTERS
+// 5. BẮT ĐẦU BẢO TRÌ
+// =====================================
+
+    public void startMaintenance() {
+
+        if (status != ParkingSpotStatus.AVAILABLE) {
+
+            throw new IllegalStateException(
+                    "Chỉ có thể bảo trì vị trí đang trống"
+            );
+        }
+
+        this.status = ParkingSpotStatus.MAINTENANCE;
+    }
+
+// =====================================
+// 6. KẾT THÚC BẢO TRÌ
+// =====================================
+
+    public void endMaintenance() {
+
+        if (status != ParkingSpotStatus.MAINTENANCE) {
+
+            throw new IllegalStateException(
+                    "Vị trí không ở trạng thái bảo trì"
+            );
+        }
+
+        this.status = ParkingSpotStatus.AVAILABLE;
+    }
+
+    // =====================================
+    // 7. GETTERS
     // =====================================
 
     public Long getId() {

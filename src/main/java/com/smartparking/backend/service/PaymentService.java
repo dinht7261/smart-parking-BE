@@ -47,7 +47,7 @@ public class PaymentService {
     private static final BigDecimal HOURLY_RATE =
             BigDecimal.valueOf(5000);
     private static final BigDecimal RESERVATION_HOLD_HOURLY_RATE =
-            BigDecimal.valueOf(5000);
+            BigDecimal.valueOf(2000);
     private static final BigDecimal OVERNIGHT_PENALTY =
             BigDecimal.valueOf(100000);
 
